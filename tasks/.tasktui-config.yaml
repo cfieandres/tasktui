@@ -1,0 +1,5 @@
+workstreams:
+- name: work
+  key: '1'
+- name: personal
+  key: '2'
