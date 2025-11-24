@@ -1,6 +1,7 @@
 mod models;
 mod storage;
 mod tui;
+mod git;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

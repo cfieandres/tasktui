@@ -1,4 +1,5 @@
 use crate::models::{Frontmatter, TaskItem, TaskFilter};
+use crate::git::GitSync;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +7,7 @@ use std::path::{Path, PathBuf};
 /// Storage manager for task files
 pub struct Storage {
     pub data_dir: PathBuf,
+    pub git_sync: Option<GitSync>,
 }
 
 impl Storage {
@@ -16,7 +18,16 @@ impl Storage {
             fs::create_dir_all(&data_dir)
                 .context("Failed to create data directory")?;
         }
-        Ok(Self { data_dir })
+
+        // Initialize git sync (optional - won't fail if git not available)
+        let git_sync = GitSync::new(data_dir.clone());
+        let git_sync = if git_sync.is_git_repo() {
+            Some(git_sync)
+        } else {
+            None
+        };
+
+        Ok(Self { data_dir, git_sync })
     }
 
     /// Parse a markdown file with YAML frontmatter
@@ -59,12 +70,27 @@ impl Storage {
 
     /// Write a task item to disk
     pub fn write_task(&self, item: &TaskItem) -> Result<PathBuf> {
+        // Pre-sync: pull if git is available
+        if let Some(git_sync) = &self.git_sync {
+            if let Err(e) = git_sync.pull() {
+                eprintln!("Warning: Git pull failed: {}", e);
+            }
+        }
+
         let filename = format!("{}.md", item.frontmatter.id);
         let path = self.data_dir.join(&filename);
 
         let content = self.serialize_task(item)?;
         fs::write(&path, content)
             .context("Failed to write task file")?;
+
+        // Post-sync: commit and push if git is available
+        if let Some(git_sync) = &self.git_sync {
+            let message = format!("Update: {}", item.frontmatter.title);
+            if let Err(e) = git_sync.commit_and_push(&message) {
+                eprintln!("Warning: Git sync failed: {}. Changes saved locally.", e);
+            }
+        }
 
         Ok(path)
     }
