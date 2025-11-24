@@ -1,5 +1,7 @@
 workstreams:
 - name: work
   key: '1'
-- name: personal
+- name: house
   key: '2'
+- name: finance
+  key: '3'
