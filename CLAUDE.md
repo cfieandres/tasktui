@@ -72,29 +72,37 @@ Failed pushes set "Sync Pending" state and retry on next command.
 
 ## Development Commands
 
-*Note: This project is in initial development. Commands will be added as build system is implemented.*
-
 ### Build & Run
 ```bash
-cargo build                    # Build debug binary
-cargo build --release          # Build optimized binary
-cargo run                      # Run TUI mode
-cargo run -- --server          # Run MCP server mode
+cargo build                              # Build debug binary
+cargo build --release                    # Build optimized binary
+cargo run                                # Run TUI mode (default data dir: ./tasks)
+cargo run -- --data-dir ~/my-tasks       # Run with custom data directory
+cargo run -- server                      # Run MCP server mode
 ```
 
 ### Testing
 ```bash
-cargo test                     # Run all tests
-cargo test --lib               # Run library tests only
-cargo test integration::       # Run integration tests
+cargo test                               # Run all tests
+cargo test --lib                         # Run library tests only
+cargo test storage::                     # Run storage tests
+cargo test git::                         # Run git tests
 ```
 
 ### Development
 ```bash
-cargo check                    # Fast compilation check
-cargo clippy                   # Linting
-cargo fmt                      # Format code
+cargo check                              # Fast compilation check
+cargo clippy                             # Linting
+cargo fmt                                # Format code
+RUST_LOG=debug cargo run                 # Run with debug logging
 ```
+
+### TUI Mode Shortcuts
+- `Tab` - Toggle between Kanban and Compact views
+- `↑↓/jk` - Navigate tasks
+- `n` - New task, `d` - Done, `a` - Archive
+- `1/2` - Filter by work/personal tags, `0` - Clear filters
+- `r` - Refresh, `q` - Quit
 
 ## Key Implementation Considerations
 
