@@ -44,8 +44,10 @@
 ┃ n new  e edit  d done  a archive  / search  ? help  q quit  sync: ●         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-Color scheme: Purple/Magenta (#E040FB, #C026D3) headers, Cyan (#00E5FF) accents,
-              Pink (#FF4081) highlights, Dark background (#0A0A0F)
+Color scheme: Gold/Yellow (#FFD700, #FFA500) headers, Amber (#FFBF00) accents,
+              Orange (#FF8C00) highlights, Dark background (#0A0A0F)
+
+Toggle: [Tab] to switch between Kanban and Compact List views
 ```
 
 ## Option 2: Split Pane Layout
