@@ -30,7 +30,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_footer(frame, chunks[2], app);
 }
 
-fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+fn render_header(frame: &mut Frame, area: Rect, _app: &App) {
     let title = vec![
         Line::from(vec![
             Span::styled("         ▀█▀ ▄▀█ █▀ █▄▀ ▀█▀ █ █ █", THEME.title_style()),
@@ -72,7 +72,7 @@ fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, app
         .map(|task| {
             let mut lines = vec![
                 Line::from(vec![
-                    Span::styled(&task.frontmatter.priority.emoji(), THEME.normal_style()),
+                    Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()),
                     Span::styled(format!(" {}", task.frontmatter.title), THEME.normal_style()),
                 ]),
             ];
