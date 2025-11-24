@@ -23,6 +23,14 @@ pub enum ViewMode {
     ProjectGantt,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsSection {
+    #[default]
+    Workstreams,
+    Goals,
+    ApiKeys,
+}
+
 /// Column indices for Kanban view
 pub const KANBAN_COL_ACTIVE: usize = 0;
 pub const KANBAN_COL_NEXT: usize = 1;
@@ -44,9 +52,11 @@ pub struct App {
     pub kanban_column: usize,
     pub kanban_row: usize,
     // Settings view state
+    pub settings_section: SettingsSection,  // Which section (Workstreams or Goals)
     pub settings_selected: usize,
     pub settings_editing: bool,
     pub settings_edit_text: String,
+    pub settings_edit_area: String,  // For goal area selection
     // Projects view state
     pub projects_selected: usize,
     pub current_project_id: Option<Uuid>,
@@ -80,9 +90,11 @@ impl App {
             new_task_project_id: None,
             kanban_column: KANBAN_COL_ACTIVE,
             kanban_row: 0,
+            settings_section: SettingsSection::default(),
             settings_selected: 0,
             settings_editing: false,
             settings_edit_text: String::new(),
+            settings_edit_area: String::from("work"),
             projects_selected: 0,
             current_project_id: None,
             gantt_selected: 0,
@@ -105,13 +117,25 @@ impl App {
 
     pub fn open_settings(&mut self) {
         self.view_mode = ViewMode::Settings;
+        self.settings_section = SettingsSection::Workstreams;
         self.settings_selected = 0;
         self.settings_editing = false;
         self.settings_edit_text.clear();
+        self.settings_edit_area = String::from("work");
     }
 
     pub fn close_settings(&mut self) {
         self.view_mode = ViewMode::Compact;
+    }
+
+    pub fn settings_toggle_section(&mut self) {
+        self.settings_section = match self.settings_section {
+            SettingsSection::Workstreams => SettingsSection::Goals,
+            SettingsSection::Goals => SettingsSection::ApiKeys,
+            SettingsSection::ApiKeys => SettingsSection::Workstreams,
+        };
+        self.settings_selected = 0;
+        self.settings_editing = false;
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
@@ -260,8 +284,12 @@ impl App {
         // Parse @project syntax from input (e.g., "fix bug @myproject")
         let (input_text, project_from_at) = self.parse_project_reference(self.new_task_title.trim());
 
+        // Get goals context for LLM prioritization
+        let goals_context = self.config.goals_context();
+        let goals_ref = if goals_context.is_empty() { None } else { Some(goals_context.as_str()) };
+
         // Use LLM to enrich the raw input (will fallback to simple task if no API key)
-        let enriched = self.enricher.enrich_sync(&input_text);
+        let enriched = self.enricher.enrich_sync(&input_text, goals_ref);
 
         // Create task with enriched data
         let mut task = TaskItem::new(enriched.title, ItemType::Task);
@@ -550,16 +578,23 @@ impl App {
 
     // === Settings View Methods ===
 
+    fn settings_max_items(&self) -> usize {
+        match self.settings_section {
+            SettingsSection::Workstreams => self.config.workstreams.len() + 1, // +1 for "Add new"
+            SettingsSection::Goals => self.config.goals.len() + 1,
+            SettingsSection::ApiKeys => 1, // Just OpenAI API key for now
+        }
+    }
+
     pub fn settings_next(&mut self) {
-        // +1 for the "Add new" option
-        let max_items = self.config.workstreams.len() + 1;
+        let max_items = self.settings_max_items();
         if max_items > 0 {
             self.settings_selected = (self.settings_selected + 1) % max_items;
         }
     }
 
     pub fn settings_prev(&mut self) {
-        let max_items = self.config.workstreams.len() + 1;
+        let max_items = self.settings_max_items();
         if max_items > 0 {
             if self.settings_selected == 0 {
                 self.settings_selected = max_items - 1;
@@ -570,14 +605,31 @@ impl App {
     }
 
     pub fn settings_start_edit(&mut self) {
-        if self.settings_selected < self.config.workstreams.len() {
-            // Editing existing workstream
-            self.settings_editing = true;
-            self.settings_edit_text = self.config.workstreams[self.settings_selected].name.clone();
-        } else {
-            // Adding new workstream
-            self.settings_editing = true;
-            self.settings_edit_text.clear();
+        match self.settings_section {
+            SettingsSection::Workstreams => {
+                if self.settings_selected < self.config.workstreams.len() {
+                    self.settings_editing = true;
+                    self.settings_edit_text = self.config.workstreams[self.settings_selected].name.clone();
+                } else {
+                    self.settings_editing = true;
+                    self.settings_edit_text.clear();
+                }
+            }
+            SettingsSection::Goals => {
+                if self.settings_selected < self.config.goals.len() {
+                    self.settings_editing = true;
+                    self.settings_edit_text = self.config.goals[self.settings_selected].description.clone();
+                    self.settings_edit_area = self.config.goals[self.settings_selected].area.clone();
+                } else {
+                    self.settings_editing = true;
+                    self.settings_edit_text.clear();
+                    self.settings_edit_area = String::from("work");
+                }
+            }
+            SettingsSection::ApiKeys => {
+                self.settings_editing = true;
+                self.settings_edit_text = self.config.openai_api_key.clone().unwrap_or_default();
+            }
         }
     }
 
@@ -587,18 +639,42 @@ impl App {
     }
 
     pub fn settings_confirm_edit(&mut self) -> Result<()> {
-        let new_name = self.settings_edit_text.trim().to_string();
-        if new_name.is_empty() {
-            self.settings_cancel_edit();
-            return Ok(());
-        }
+        let text = self.settings_edit_text.trim().to_string();
 
-        if self.settings_selected < self.config.workstreams.len() {
-            // Rename existing
-            self.config.workstreams[self.settings_selected].name = new_name;
-        } else {
-            // Add new
-            self.config.add_workstream(new_name);
+        match self.settings_section {
+            SettingsSection::Workstreams => {
+                if text.is_empty() {
+                    self.settings_cancel_edit();
+                    return Ok(());
+                }
+                if self.settings_selected < self.config.workstreams.len() {
+                    self.config.workstreams[self.settings_selected].name = text;
+                } else {
+                    self.config.add_workstream(text);
+                }
+            }
+            SettingsSection::Goals => {
+                if text.is_empty() {
+                    self.settings_cancel_edit();
+                    return Ok(());
+                }
+                if self.settings_selected < self.config.goals.len() {
+                    self.config.update_goal(self.settings_selected, text);
+                    self.config.update_goal_area(self.settings_selected, self.settings_edit_area.clone());
+                } else {
+                    self.config.add_goal(text, self.settings_edit_area.clone());
+                }
+            }
+            SettingsSection::ApiKeys => {
+                // Allow empty to clear the API key
+                if text.is_empty() {
+                    self.config.openai_api_key = None;
+                } else {
+                    self.config.openai_api_key = Some(text);
+                }
+                // Reinitialize the enricher with the new API key
+                self.enricher = crate::llm::TaskEnricher::new(self.config.openai_api_key.clone());
+            }
         }
 
         self.config.save(&self.data_dir)?;
@@ -608,15 +684,65 @@ impl App {
     }
 
     pub fn settings_delete(&mut self) -> Result<()> {
-        if self.settings_selected < self.config.workstreams.len() {
-            self.config.workstreams.remove(self.settings_selected);
-            self.config.save(&self.data_dir)?;
-            // Adjust selection if needed
-            if self.settings_selected >= self.config.workstreams.len() && self.settings_selected > 0 {
-                self.settings_selected -= 1;
+        match self.settings_section {
+            SettingsSection::Workstreams => {
+                if self.settings_selected < self.config.workstreams.len() {
+                    self.config.workstreams.remove(self.settings_selected);
+                    self.config.save(&self.data_dir)?;
+                    if self.settings_selected >= self.config.workstreams.len() && self.settings_selected > 0 {
+                        self.settings_selected -= 1;
+                    }
+                }
+            }
+            SettingsSection::Goals => {
+                if self.settings_selected < self.config.goals.len() {
+                    self.config.delete_goal(self.settings_selected);
+                    self.config.save(&self.data_dir)?;
+                    if self.settings_selected >= self.config.goals.len() && self.settings_selected > 0 {
+                        self.settings_selected -= 1;
+                    }
+                }
+            }
+            SettingsSection::ApiKeys => {
+                // Delete clears the API key
+                self.config.openai_api_key = None;
+                self.enricher = crate::llm::TaskEnricher::new(None);
+                self.config.save(&self.data_dir)?;
             }
         }
         Ok(())
+    }
+
+    /// Cycle goal priority (only in Goals section)
+    pub fn settings_cycle_priority(&mut self) -> Result<()> {
+        if self.settings_section == SettingsSection::Goals && self.settings_selected < self.config.goals.len() {
+            self.config.cycle_goal_priority(self.settings_selected);
+            self.config.save(&self.data_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Toggle goal active state (only in Goals section)
+    pub fn settings_toggle_active(&mut self) -> Result<()> {
+        if self.settings_section == SettingsSection::Goals && self.settings_selected < self.config.goals.len() {
+            self.config.toggle_goal_active(self.settings_selected);
+            self.config.save(&self.data_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Cycle through areas when editing a goal
+    pub fn settings_cycle_area(&mut self) {
+        if self.settings_editing && self.settings_section == SettingsSection::Goals {
+            // Cycle through workstream names as areas
+            let areas: Vec<_> = self.config.workstreams.iter().map(|w| w.name.clone()).collect();
+            if areas.is_empty() {
+                return;
+            }
+            let current_idx = areas.iter().position(|a| a == &self.settings_edit_area).unwrap_or(0);
+            let next_idx = (current_idx + 1) % areas.len();
+            self.settings_edit_area = areas[next_idx].clone();
+        }
     }
 
     pub fn save_config(&self) -> Result<()> {

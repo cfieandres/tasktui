@@ -22,7 +22,7 @@ impl TaskEnricher {
 
     /// Enrich a raw task input using LLM
     /// Falls back to simple task if LLM unavailable or fails
-    pub async fn enrich(&self, raw_input: &str) -> EnrichedTask {
+    pub async fn enrich(&self, raw_input: &str, goals_context: Option<&str>) -> EnrichedTask {
         // If no API key, return simple task
         let Some(client) = &self.client else {
             return EnrichedTask::simple(raw_input.to_string());
@@ -30,7 +30,7 @@ impl TaskEnricher {
 
         // Get today's date for the prompt
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let system_prompt = build_system_prompt(&today);
+        let system_prompt = build_system_prompt(&today, goals_context);
         let user_prompt = build_user_prompt(raw_input);
 
         // Try to get enriched response
@@ -54,27 +54,31 @@ impl TaskEnricher {
 
     /// Synchronous version for non-async contexts
     /// Uses tokio runtime to block on the async call
-    pub fn enrich_sync(&self, raw_input: &str) -> EnrichedTask {
+    pub fn enrich_sync(&self, raw_input: &str, goals_context: Option<&str>) -> EnrichedTask {
         // If no API key, return simple task immediately
         if self.client.is_none() {
             return EnrichedTask::simple(raw_input.to_string());
         }
 
+        // Clone goals_context for use in thread
+        let goals = goals_context.map(|s| s.to_string());
+
         // Try to get or create a tokio runtime
         match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
+            Ok(_handle) => {
                 // We're already in an async context, spawn blocking
+                let input = raw_input.to_string();
                 std::thread::scope(|s| {
                     s.spawn(|| {
                         let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(self.enrich(raw_input))
+                        rt.block_on(self.enrich(&input, goals.as_deref()))
                     }).join().unwrap_or_else(|_| EnrichedTask::simple(raw_input.to_string()))
                 })
             }
             Err(_) => {
                 // No runtime, create one
                 match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt.block_on(self.enrich(raw_input)),
+                    Ok(rt) => rt.block_on(self.enrich(raw_input, goals.as_deref())),
                     Err(_) => EnrichedTask::simple(raw_input.to_string()),
                 }
             }

@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::llm::TaskEnricher;
 use crate::storage::Storage;
 use anyhow::Result;
@@ -39,11 +40,12 @@ struct JsonRpcError {
 pub struct McpServer {
     storage: Storage,
     enricher: TaskEnricher,
+    config: AppConfig,
 }
 
 impl McpServer {
-    pub fn new(storage: Storage, enricher: TaskEnricher) -> Self {
-        Self { storage, enricher }
+    pub fn new(storage: Storage, enricher: TaskEnricher, config: AppConfig) -> Self {
+        Self { storage, enricher, config }
     }
 
     pub fn run(&self) -> Result<()> {
@@ -89,7 +91,7 @@ impl McpServer {
             "tools/list" => tools::list_tools(),
             "tools/call" => {
                 let params = request.params.unwrap_or(Value::Null);
-                tools::call_tool(&self.storage, &self.enricher, params)
+                tools::call_tool(&self.storage, &self.enricher, &self.config, params)
             }
             "resources/list" => tools::list_resources(),
             "resources/read" => {

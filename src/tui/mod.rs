@@ -6,7 +6,7 @@ mod settings;
 mod projects;
 mod project_gantt;
 
-pub use app::{App, ViewMode};
+pub use app::{App, ViewMode, SettingsSection};
 pub use colors::THEME;
 
 use anyhow::Result;
@@ -83,6 +83,12 @@ fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Esc => app.settings_cancel_edit(),
                         KeyCode::Enter => app.settings_confirm_edit()?,
                         KeyCode::Backspace => { app.settings_edit_text.pop(); }
+                        KeyCode::Tab => {
+                            // In Goals section, Tab cycles through areas
+                            if app.settings_section == SettingsSection::Goals {
+                                app.settings_cycle_area();
+                            }
+                        }
                         KeyCode::Char(c) => app.settings_edit_text.push(c),
                         _ => {}
                     }
@@ -91,10 +97,23 @@ fn run_app<B: ratatui::backend::Backend>(
                     match app.view_mode {
                         ViewMode::Settings => match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => app.close_settings(),
+                            KeyCode::Tab => app.settings_toggle_section(),
                             KeyCode::Up | KeyCode::Char('k') => app.settings_prev(),
                             KeyCode::Down | KeyCode::Char('j') => app.settings_next(),
                             KeyCode::Enter => app.settings_start_edit(),
                             KeyCode::Char('x') | KeyCode::Delete => app.settings_delete()?,
+                            KeyCode::Char('P') => {
+                                // Cycle priority in Goals section
+                                if app.settings_section == SettingsSection::Goals {
+                                    app.settings_cycle_priority()?;
+                                }
+                            }
+                            KeyCode::Char(' ') => {
+                                // Toggle active state in Goals section
+                                if app.settings_section == SettingsSection::Goals {
+                                    app.settings_toggle_active()?;
+                                }
+                            }
                             _ => {}
                         },
                         ViewMode::Projects => match key.code {

@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::llm::TaskEnricher;
 use crate::models::{ItemType, Priority, Status, TaskFilter, TaskItem};
 use crate::storage::Storage;
@@ -134,7 +135,7 @@ pub fn list_tools() -> Result<Value, String> {
 }
 
 /// Call a tool
-pub fn call_tool(storage: &Storage, enricher: &TaskEnricher, params: Value) -> Result<Value, String> {
+pub fn call_tool(storage: &Storage, enricher: &TaskEnricher, config: &AppConfig, params: Value) -> Result<Value, String> {
     let tool_name = params
         .get("name")
         .and_then(|v| v.as_str())
@@ -143,7 +144,7 @@ pub fn call_tool(storage: &Storage, enricher: &TaskEnricher, params: Value) -> R
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
 
     match tool_name {
-        "create_task" => create_task(storage, enricher, arguments),
+        "create_task" => create_task(storage, enricher, config, arguments),
         "update_task" => update_task(storage, arguments),
         "list_tasks" => list_tasks(storage, arguments),
         "read_task_details" => read_task_details(storage, arguments),
@@ -152,12 +153,16 @@ pub fn call_tool(storage: &Storage, enricher: &TaskEnricher, params: Value) -> R
     }
 }
 
-fn create_task(storage: &Storage, enricher: &TaskEnricher, args: Value) -> Result<Value, String> {
+fn create_task(storage: &Storage, enricher: &TaskEnricher, config: &AppConfig, args: Value) -> Result<Value, String> {
+    // Get goals context for LLM prioritization
+    let goals_context = config.goals_context();
+    let goals_ref = if goals_context.is_empty() { None } else { Some(goals_context.as_str()) };
+
     // Check if raw_input is provided (natural language mode)
     let (title, enriched_due_date, enriched_priority, enriched_tags, enriched_context) =
         if let Some(raw_input) = args.get("raw_input").and_then(|v| v.as_str()) {
             // Use LLM to parse the natural language input
-            let enriched = enricher.enrich_sync(raw_input);
+            let enriched = enricher.enrich_sync(raw_input, goals_ref);
             (
                 enriched.title,
                 enriched.due_date,

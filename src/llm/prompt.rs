@@ -40,11 +40,23 @@ pub fn build_user_prompt(raw_input: &str) -> String {
     format!("Parse this task: \"{}\"", raw_input)
 }
 
-/// Build the system prompt with today's date
-pub fn build_system_prompt(today: &str) -> String {
-    SYSTEM_PROMPT.replace("{today}", today)
+/// Build the system prompt with today's date and optional goals context
+pub fn build_system_prompt(today: &str, goals_context: Option<&str>) -> String {
+    let mut prompt = SYSTEM_PROMPT.replace("{today}", today)
         .replace("{tomorrow}", &calculate_date_offset(today, 1))
-        .replace("{weekend}", &calculate_next_weekend(today))
+        .replace("{weekend}", &calculate_next_weekend(today));
+
+    // Add goals context if available to help with prioritization
+    if let Some(goals) = goals_context {
+        if !goals.is_empty() {
+            prompt.push_str("\n\n--- User's Goals & Priorities (GTD Horizons of Focus) ---\n");
+            prompt.push_str(goals);
+            prompt.push_str("\n\nUse these goals to help determine appropriate priority and tags. ");
+            prompt.push_str("Tasks that align with high-priority goals should be marked as higher priority.");
+        }
+    }
+
+    prompt
 }
 
 /// Calculate a date offset from today
