@@ -39,6 +39,7 @@ pub struct App {
     pub active_filter: Option<String>,
     pub show_new_task: bool,
     pub new_task_title: String,
+    pub new_task_project_id: Option<Uuid>, // Project to assign new task to (from @project or Gantt view)
     // Kanban navigation state
     pub kanban_column: usize,
     pub kanban_row: usize,
@@ -76,6 +77,7 @@ impl App {
             active_filter: None,
             show_new_task: false,
             new_task_title: String::new(),
+            new_task_project_id: None,
             kanban_column: KANBAN_COL_ACTIVE,
             kanban_row: 0,
             settings_selected: 0,
@@ -232,21 +234,34 @@ impl App {
     pub fn show_new_task_dialog(&mut self) {
         self.show_new_task = true;
         self.new_task_title.clear();
+        self.new_task_project_id = None;
+    }
+
+    pub fn show_new_task_dialog_for_project(&mut self) {
+        self.show_new_task = true;
+        self.new_task_title.clear();
+        // Pre-assign to current project when creating from Gantt view
+        self.new_task_project_id = self.current_project_id;
     }
 
     pub fn cancel_new_task_dialog(&mut self) {
         self.show_new_task = false;
         self.new_task_title.clear();
+        self.new_task_project_id = None;
     }
 
     pub fn create_new_task(&mut self) -> Result<()> {
         if self.new_task_title.trim().is_empty() {
             self.show_new_task = false;
+            self.new_task_project_id = None;
             return Ok(());
         }
 
+        // Parse @project syntax from input (e.g., "fix bug @myproject")
+        let (input_text, project_from_at) = self.parse_project_reference(self.new_task_title.trim());
+
         // Use LLM to enrich the raw input (will fallback to simple task if no API key)
-        let enriched = self.enricher.enrich_sync(self.new_task_title.trim());
+        let enriched = self.enricher.enrich_sync(&input_text);
 
         // Create task with enriched data
         let mut task = TaskItem::new(enriched.title, ItemType::Task);
@@ -269,6 +284,9 @@ impl App {
             task.body = context;
         }
 
+        // Assign to project: @project syntax takes precedence, then Gantt view context
+        task.frontmatter.parent_goal_id = project_from_at.or(self.new_task_project_id);
+
         self.storage.write_task(&mut task)?;
         self.tasks.push(task);
 
@@ -283,9 +301,46 @@ impl App {
         let kanban_active_count = self.kanban_column_tasks().len();
         self.kanban_row = kanban_active_count.saturating_sub(1);
 
+        // Update Gantt selection if we're in that view
+        if self.view_mode == ViewMode::ProjectGantt {
+            self.gantt_selected = self.get_project_tasks().len().saturating_sub(1);
+        }
+
         self.show_new_task = false;
         self.new_task_title.clear();
+        self.new_task_project_id = None;
         Ok(())
+    }
+
+    /// Parse @project reference from input text
+    /// Returns (cleaned_input, Option<project_id>)
+    fn parse_project_reference(&self, input: &str) -> (String, Option<Uuid>) {
+        // Find @word pattern
+        let mut project_id = None;
+        let mut cleaned = input.to_string();
+
+        if let Some(at_pos) = input.find('@') {
+            // Extract the word after @
+            let after_at = &input[at_pos + 1..];
+            let project_name: String = after_at
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
+
+            if !project_name.is_empty() {
+                // Look up project by name (case-insensitive)
+                let project_name_lower = project_name.to_lowercase();
+                if let Some(project) = self.tasks.iter().find(|t| {
+                    t.is_project() && t.frontmatter.title.to_lowercase().contains(&project_name_lower)
+                }) {
+                    project_id = Some(project.frontmatter.id);
+                    // Remove @project from input
+                    cleaned = input.replace(&format!("@{}", project_name), "").trim().to_string();
+                }
+            }
+        }
+
+        (cleaned, project_id)
     }
 
     pub fn mark_task_done(&mut self) -> Result<()> {
@@ -294,6 +349,39 @@ impl App {
             let task_id = task.frontmatter.id;
             if let Some(task) = self.tasks.iter_mut().find(|t| t.frontmatter.id == task_id) {
                 task.frontmatter.status = Status::Done;
+                self.storage.write_task(task)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Cycle task priority: Low → Medium → High → Low
+    pub fn cycle_task_priority(&mut self) -> Result<()> {
+        let filtered = self.filtered_tasks();
+        if let Some(task) = filtered.get(self.selected_index) {
+            let task_id = task.frontmatter.id;
+            if let Some(task) = self.tasks.iter_mut().find(|t| t.frontmatter.id == task_id) {
+                task.frontmatter.priority = match task.frontmatter.priority {
+                    Priority::Low => Priority::Medium,
+                    Priority::Medium => Priority::High,
+                    Priority::High => Priority::Low,
+                };
+                self.storage.write_task(task)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Cycle task priority in Kanban view
+    pub fn kanban_cycle_priority(&mut self) -> Result<()> {
+        if let Some(task) = self.kanban_selected_task() {
+            let task_id = task.frontmatter.id;
+            if let Some(task) = self.tasks.iter_mut().find(|t| t.frontmatter.id == task_id) {
+                task.frontmatter.priority = match task.frontmatter.priority {
+                    Priority::Low => Priority::Medium,
+                    Priority::Medium => Priority::High,
+                    Priority::High => Priority::Low,
+                };
                 self.storage.write_task(task)?;
             }
         }

@@ -149,6 +149,8 @@ fn render_footer(frame: &mut Frame, area: Rect) {
         Span::raw(" nav  "),
         Span::styled("←→", THEME.accent_style()),
         Span::raw(" scroll  "),
+        Span::styled("n", THEME.accent_style()),
+        Span::raw(" new task  "),
         Span::styled("Esc", THEME.accent_style()),
         Span::raw(" back  "),
         Span::styled("q", THEME.accent_style()),

@@ -113,6 +113,7 @@ fn run_app<B: ratatui::backend::Backend>(
                             KeyCode::Down | KeyCode::Char('j') => app.gantt_next(),
                             KeyCode::Left | KeyCode::Char('h') => app.gantt_scroll_left(),
                             KeyCode::Right | KeyCode::Char('l') => app.gantt_scroll_right(),
+                            KeyCode::Char('n') => app.show_new_task_dialog_for_project(),
                             _ => {}
                         },
                         _ => {
@@ -154,6 +155,7 @@ fn handle_view_keys(app: &mut App, code: KeyCode) -> Result<()> {
             KeyCode::Enter => app.toggle_task_selection(),
             KeyCode::Char('d') => app.mark_task_done()?,
             KeyCode::Char('a') => app.archive_task()?,
+            KeyCode::Char('P') => app.cycle_task_priority()?,
             _ => {}
         },
         ViewMode::Kanban => match code {
@@ -163,6 +165,7 @@ fn handle_view_keys(app: &mut App, code: KeyCode) -> Result<()> {
             KeyCode::Right | KeyCode::Char('l') => app.kanban_move_right(),
             KeyCode::Char('d') => app.kanban_mark_done()?,
             KeyCode::Char('a') => app.kanban_archive_task()?,
+            KeyCode::Char('P') => app.kanban_cycle_priority()?,
             _ => {}
         },
         _ => {} // Other views handled above

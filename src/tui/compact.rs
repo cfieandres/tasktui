@@ -212,6 +212,8 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(" new  "),
         Span::styled("d", THEME.accent_style()),
         Span::raw(" done  "),
+        Span::styled("P", THEME.accent_style()),
+        Span::raw(" priority  "),
     ];
 
     // Add dynamic workstream shortcuts

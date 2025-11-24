@@ -154,6 +154,8 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(" done  "),
         Span::styled("a", THEME.accent_style()),
         Span::raw(" archive  "),
+        Span::styled("P", THEME.accent_style()),
+        Span::raw(" priority  "),
         Span::styled("tab", THEME.accent_style()),
         Span::raw(" view  "),
         Span::styled("q", THEME.accent_style()),
