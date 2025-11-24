@@ -2,6 +2,7 @@ mod models;
 mod storage;
 mod tui;
 mod git;
+mod mcp;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -29,8 +30,8 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Server) => {
-            println!("MCP server mode not yet implemented");
-            Ok(())
+            // Run MCP server mode
+            mcp::run(cli.data_dir)
         }
         None => {
             // Run TUI mode
