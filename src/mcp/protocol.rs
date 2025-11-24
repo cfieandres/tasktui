@@ -1,3 +1,4 @@
+use crate::llm::TaskEnricher;
 use crate::storage::Storage;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -37,11 +38,12 @@ struct JsonRpcError {
 
 pub struct McpServer {
     storage: Storage,
+    enricher: TaskEnricher,
 }
 
 impl McpServer {
-    pub fn new(storage: Storage) -> Self {
-        Self { storage }
+    pub fn new(storage: Storage, enricher: TaskEnricher) -> Self {
+        Self { storage, enricher }
     }
 
     pub fn run(&self) -> Result<()> {
@@ -87,7 +89,7 @@ impl McpServer {
             "tools/list" => tools::list_tools(),
             "tools/call" => {
                 let params = request.params.unwrap_or(Value::Null);
-                tools::call_tool(&self.storage, params)
+                tools::call_tool(&self.storage, &self.enricher, params)
             }
             "resources/list" => tools::list_resources(),
             "resources/read" => {

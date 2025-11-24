@@ -1,4 +1,4 @@
-use super::{app::App, THEME};
+use super::{app::{App, KANBAN_COL_ACTIVE, KANBAN_COL_NEXT, KANBAN_COL_WAITING, KANBAN_COL_DONE}, THEME};
 use crate::models::Status;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -58,24 +58,38 @@ fn render_board(frame: &mut Frame, area: Rect, app: &App) {
         ])
         .split(area);
 
-    render_column(frame, columns[0], "ACTIVE", Status::Active, app);
-    render_column(frame, columns[1], "NEXT", Status::Next, app);
-    render_column(frame, columns[2], "WAITING", Status::Waiting, app);
-    render_column(frame, columns[3], "DONE", Status::Done, app);
+    render_column(frame, columns[0], "ACTIVE", Status::Active, KANBAN_COL_ACTIVE, app);
+    render_column(frame, columns[1], "NEXT", Status::Next, KANBAN_COL_NEXT, app);
+    render_column(frame, columns[2], "WAITING", Status::Waiting, KANBAN_COL_WAITING, app);
+    render_column(frame, columns[3], "DONE", Status::Done, KANBAN_COL_DONE, app);
 }
 
-fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, app: &App) {
+fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, col_index: usize, app: &App) {
     let tasks = app.tasks_by_status(status);
+    let is_selected_column = app.kanban_column == col_index;
 
     let items: Vec<ListItem> = tasks
         .iter()
-        .map(|task| {
-            let mut lines = vec![
-                Line::from(vec![
+        .enumerate()
+        .map(|(idx, task)| {
+            let is_selected = is_selected_column && idx == app.kanban_row;
+
+            let mut lines = vec![];
+
+            // Title line with selection indicator
+            if is_selected {
+                lines.push(Line::from(vec![
+                    Span::styled("▸ ", THEME.accent_style()),
+                    Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()),
+                    Span::styled(format!(" {}", task.frontmatter.title), THEME.highlight_style()),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
                     Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()),
                     Span::styled(format!(" {}", task.frontmatter.title), THEME.normal_style()),
-                ]),
-            ];
+                ]));
+            }
 
             // Add tags
             if !task.frontmatter.tags.is_empty() {
@@ -84,15 +98,18 @@ fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, app
                     .map(|t| format!("#{}", t))
                     .collect::<Vec<_>>()
                     .join(" ");
-                lines.push(Line::from(Span::styled(tags, THEME.tag_style())));
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(tags, THEME.tag_style()),
+                ]));
             }
 
             // Add due date
             if let Some(due) = &task.frontmatter.due_date {
-                lines.push(Line::from(Span::styled(
-                    format!("📅 {}", due),
-                    THEME.dim_style(),
-                )));
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("📅 {}", due), THEME.dim_style()),
+                ]));
             }
 
             lines.push(Line::from(""));
@@ -101,12 +118,25 @@ fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, app
         })
         .collect();
 
+    // Highlight selected column with different border style
+    let border_style = if is_selected_column {
+        THEME.border_focused_style()
+    } else {
+        THEME.border_style()
+    };
+
+    let title_style = if is_selected_column {
+        THEME.highlight_style()
+    } else {
+        THEME.accent_style()
+    };
+
     let list = List::new(items).block(
         Block::default()
-            .title(title)
-            .title_style(THEME.accent_style())
+            .title(format!("{} ({})", title, tasks.len()))
+            .title_style(title_style)
             .borders(Borders::ALL)
-            .border_style(THEME.border_style()),
+            .border_style(border_style),
     );
 
     frame.render_widget(list, area);
@@ -114,6 +144,10 @@ fn render_column(frame: &mut Frame, area: Rect, title: &str, status: Status, app
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     let mut help_items = vec![
+        Span::styled("←→", THEME.accent_style()),
+        Span::raw(" col  "),
+        Span::styled("↑↓", THEME.accent_style()),
+        Span::raw(" row  "),
         Span::styled("n", THEME.accent_style()),
         Span::raw(" new  "),
         Span::styled("d", THEME.accent_style()),

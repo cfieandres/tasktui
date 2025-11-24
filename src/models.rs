@@ -32,6 +32,7 @@ pub enum ItemType {
     Task,
     Goal,
     Note,
+    Project,
 }
 
 /// Priority level
@@ -70,6 +71,13 @@ pub struct Frontmatter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_goal_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    // Project-specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<u8>,
 }
 
 fn default_priority() -> Priority {
@@ -99,10 +107,42 @@ impl TaskItem {
                 due_date: None,
                 parent_goal_id: None,
                 created_at: Utc::now(),
+                start_date: None,
+                end_date: None,
+                progress: None,
             },
             body: String::new(),
             file_path: std::path::PathBuf::new(),
         }
+    }
+
+    /// Create a new project
+    pub fn new_project(title: String) -> Self {
+        let id = Uuid::new_v4();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        Self {
+            frontmatter: Frontmatter {
+                id,
+                item_type: ItemType::Project,
+                title,
+                status: Status::Active,
+                priority: Priority::Medium,
+                tags: Vec::new(),
+                due_date: None,
+                parent_goal_id: None,
+                created_at: Utc::now(),
+                start_date: Some(today),
+                end_date: None,
+                progress: Some(0),
+            },
+            body: String::new(),
+            file_path: std::path::PathBuf::new(),
+        }
+    }
+
+    /// Check if this is a project
+    pub fn is_project(&self) -> bool {
+        self.frontmatter.item_type == ItemType::Project
     }
 
     /// Check if task matches a tag filter
@@ -133,6 +173,7 @@ pub struct TaskFilter {
     pub tags: Vec<String>,
     pub item_type: Option<ItemType>,
     pub limit: Option<usize>,
+    pub project_id: Option<Uuid>,
 }
 
 impl TaskFilter {
@@ -157,6 +198,13 @@ impl TaskFilter {
                 if !item.has_tag(tag) {
                     return false;
                 }
+            }
+        }
+
+        // Project filter (check parent_goal_id)
+        if let Some(project_id) = &self.project_id {
+            if item.frontmatter.parent_goal_id.as_ref() != Some(project_id) {
+                return false;
             }
         }
 

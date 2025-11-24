@@ -61,28 +61,36 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
-    let items = vec![
+    let mut items = vec![
         ListItem::new(Line::from(vec![
             Span::styled("F", THEME.accent_style()),
             Span::raw("ilters"),
         ])),
         ListItem::new(""),
         ListItem::new(if app.active_filter.is_none() {
-            Line::from(Span::styled("● All", THEME.primary))
+            Line::from(Span::styled("● All", THEME.accent_style()))
         } else {
             Line::from(Span::raw("○ All"))
         }),
-        ListItem::new(if app.active_filter.as_deref() == Some("work") {
-            Line::from(Span::styled("● Work", THEME.primary))
-        } else {
-            Line::from(Span::raw("○ Work"))
-        }),
-        ListItem::new(if app.active_filter.as_deref() == Some("personal") {
-            Line::from(Span::styled("● Personal", THEME.primary))
-        } else {
-            Line::from(Span::raw("○ Personal"))
-        }),
     ];
+
+    // Add dynamic workstream filters
+    for ws in &app.config.workstreams {
+        let is_active = app.active_filter.as_deref() == Some(&ws.name);
+        // Capitalize first letter for display
+        let display_name = ws.name.chars().next()
+            .map(|c| c.to_uppercase().to_string() + &ws.name[1..])
+            .unwrap_or_else(|| ws.name.clone());
+
+        if is_active {
+            items.push(ListItem::new(Line::from(Span::styled(
+                format!("● {}", display_name),
+                THEME.accent_style(),
+            ))));
+        } else {
+            items.push(ListItem::new(Line::from(Span::raw(format!("○ {}", display_name)))));
+        }
+    }
 
     let sidebar = List::new(items)
         .block(
@@ -109,44 +117,52 @@ fn render_task_list(frame: &mut Frame, area: Rect, app: &App) {
         .collect();
 
     let mut items = Vec::new();
+    let mut current_offset: usize = 0;
 
     // Active section
     items.push(ListItem::new(Line::from(vec![
         Span::styled("  Active Tasks", THEME.accent_style()),
-        Span::styled("  ━━━━━━━━━━━━━", THEME.border_style()),
+        Span::styled(format!(" ({})", active_tasks.len()), THEME.dim_style()),
     ])));
-    items.push(ListItem::new(""));
 
     for (idx, task) in active_tasks.iter().enumerate() {
-        let is_selected = idx == app.selected_index && app.selected_index < active_tasks.len();
+        let is_selected = current_offset + idx == app.selected_index;
         items.push(create_task_item(task, is_selected));
     }
+    current_offset += active_tasks.len();
 
     // Next section
     if !next_tasks.is_empty() {
         items.push(ListItem::new(""));
         items.push(ListItem::new(Line::from(vec![
             Span::styled("  Next Tasks", THEME.dim_style()),
-            Span::styled("  ━━━━━━━━━━━", THEME.border_style()),
+            Span::styled(format!(" ({})", next_tasks.len()), THEME.dim_style()),
         ])));
-        items.push(ListItem::new(""));
 
-        for task in next_tasks.iter() {
-            items.push(create_task_item(task, false));
+        for (idx, task) in next_tasks.iter().enumerate() {
+            let is_selected = current_offset + idx == app.selected_index;
+            items.push(create_task_item(task, is_selected));
         }
+        current_offset += next_tasks.len();
     }
 
-    // Done section
+    // Done section (show up to 10)
     if !done_tasks.is_empty() {
         items.push(ListItem::new(""));
+        let showing = done_tasks.len().min(10);
+        let remaining = done_tasks.len().saturating_sub(10);
+        let label = if remaining > 0 {
+            format!("  Done ({} shown, +{} more)", showing, remaining)
+        } else {
+            format!("  Done ({})", done_tasks.len())
+        };
         items.push(ListItem::new(Line::from(vec![
-            Span::styled("  Done Today", THEME.dim_style()),
-            Span::styled("  ━━━━━━━━━━━", THEME.border_style()),
+            Span::styled(label, THEME.dim_style()),
         ])));
-        items.push(ListItem::new(""));
 
-        for task in done_tasks.iter().take(3) {
-            items.push(create_task_item(task, false));
+        for (idx, task) in done_tasks.iter().take(10).enumerate() {
+            let is_selected = current_offset + idx == app.selected_index;
+            items.push(create_task_item(task, is_selected));
         }
     }
 
@@ -155,72 +171,67 @@ fn render_task_list(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn create_task_item(task: &crate::models::TaskItem, is_selected: bool) -> ListItem {
-    let mut lines = vec![];
+    // Single line with title, tags, and due date
+    let mut spans = Vec::new();
 
-    // Title line with priority
-    let title_line = if is_selected {
-        Line::from(vec![
-            Span::styled(" ▸ ", THEME.primary),
-            Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()),
-            Span::styled(format!(" {}", task.frontmatter.title), THEME.highlight_style()),
-        ])
+    if is_selected {
+        spans.push(Span::styled(" ▸ ", THEME.accent_style()));
+        spans.push(Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()));
+        spans.push(Span::styled(format!(" {}", task.frontmatter.title), THEME.highlight_style()));
     } else {
-        Line::from(vec![
-            Span::raw("   "),
-            Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()),
-            Span::styled(format!(" {}", task.frontmatter.title), THEME.normal_style()),
-        ])
-    };
-    lines.push(title_line);
+        spans.push(Span::raw("   "));
+        spans.push(Span::styled(task.frontmatter.priority.emoji(), THEME.normal_style()));
+        spans.push(Span::styled(format!(" {}", task.frontmatter.title), THEME.normal_style()));
+    }
 
-    // Separator and info line
-    lines.push(Line::from(Span::styled(
-        "   ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈",
-        THEME.border_style(),
-    )));
-
-    // Tags and due date
-    let mut info_spans = vec![Span::raw("      ")];
-
+    // Add tags inline
     if !task.frontmatter.tags.is_empty() {
         let tags = task.frontmatter.tags
             .iter()
             .map(|t| format!("#{}", t))
             .collect::<Vec<_>>()
             .join(" ");
-        info_spans.push(Span::styled(tags, THEME.tag_style()));
-        info_spans.push(Span::raw("  "));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(tags, THEME.tag_style()));
     }
 
+    // Add due date inline
     if let Some(due) = &task.frontmatter.due_date {
-        info_spans.push(Span::styled(format!("📅 {}", due), THEME.dim_style()));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(format!("📅 {}", due), THEME.dim_style()));
     }
 
-    lines.push(Line::from(info_spans));
-    lines.push(Line::from("")); // Spacing
-
-    ListItem::new(lines)
+    ListItem::new(Line::from(spans))
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, _app: &App) {
-    let help_items = vec![
+fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
+    let mut help_items = vec![
         Span::styled("↑↓", THEME.accent_style()),
         Span::raw(" nav  "),
         Span::styled("n", THEME.accent_style()),
         Span::raw(" new  "),
         Span::styled("d", THEME.accent_style()),
         Span::raw(" done  "),
-        Span::styled("1", THEME.accent_style()),
-        Span::raw(" work  "),
-        Span::styled("2", THEME.accent_style()),
-        Span::raw(" personal  "),
+    ];
+
+    // Add dynamic workstream shortcuts
+    for ws in &app.config.workstreams {
+        help_items.push(Span::styled(ws.key.to_string(), THEME.accent_style()));
+        help_items.push(Span::raw(format!(" {}  ", ws.name)));
+    }
+
+    help_items.extend([
         Span::styled("0", THEME.accent_style()),
         Span::raw(" all  "),
+        Span::styled("p", THEME.accent_style()),
+        Span::raw(" projects  "),
+        Span::styled("s", THEME.accent_style()),
+        Span::raw(" settings  "),
         Span::styled("tab", THEME.accent_style()),
         Span::raw(" view  "),
         Span::styled("q", THEME.accent_style()),
         Span::raw(" quit"),
-    ];
+    ]);
 
     let footer = Paragraph::new(Line::from(help_items))
         .block(Block::default().borders(Borders::TOP).border_style(THEME.border_style()));

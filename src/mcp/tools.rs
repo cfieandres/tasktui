@@ -1,3 +1,4 @@
+use crate::llm::TaskEnricher;
 use crate::models::{ItemType, Priority, Status, TaskFilter, TaskItem};
 use crate::storage::Storage;
 use serde_json::{json, Value};
@@ -23,13 +24,17 @@ pub fn list_tools() -> Result<Value, String> {
         "tools": [
             {
                 "name": "create_task",
-                "description": "Create a new task with optional metadata",
+                "description": "Create a new task. Use raw_input for natural language (e.g., 'call mom tomorrow high priority') which will be parsed by LLM, or provide structured fields directly.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
+                        "raw_input": {
+                            "type": "string",
+                            "description": "Natural language task description (e.g., 'call mom tomorrow high priority'). If provided, LLM will parse it to extract title, due_date, priority, and tags."
+                        },
                         "title": {
                             "type": "string",
-                            "description": "Task title"
+                            "description": "Task title (used if raw_input not provided)"
                         },
                         "context": {
                             "type": "string",
@@ -49,8 +54,7 @@ pub fn list_tools() -> Result<Value, String> {
                             "items": { "type": "string" },
                             "description": "Task tags"
                         }
-                    },
-                    "required": ["title"]
+                    }
                 }
             },
             {
@@ -130,7 +134,7 @@ pub fn list_tools() -> Result<Value, String> {
 }
 
 /// Call a tool
-pub fn call_tool(storage: &Storage, params: Value) -> Result<Value, String> {
+pub fn call_tool(storage: &Storage, enricher: &TaskEnricher, params: Value) -> Result<Value, String> {
     let tool_name = params
         .get("name")
         .and_then(|v| v.as_str())
@@ -139,7 +143,7 @@ pub fn call_tool(storage: &Storage, params: Value) -> Result<Value, String> {
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
 
     match tool_name {
-        "create_task" => create_task(storage, arguments),
+        "create_task" => create_task(storage, enricher, arguments),
         "update_task" => update_task(storage, arguments),
         "list_tasks" => list_tasks(storage, arguments),
         "read_task_details" => read_task_details(storage, arguments),
@@ -148,15 +152,47 @@ pub fn call_tool(storage: &Storage, params: Value) -> Result<Value, String> {
     }
 }
 
-fn create_task(storage: &Storage, args: Value) -> Result<Value, String> {
-    let title = args
-        .get("title")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing title")?
-        .to_string();
+fn create_task(storage: &Storage, enricher: &TaskEnricher, args: Value) -> Result<Value, String> {
+    // Check if raw_input is provided (natural language mode)
+    let (title, enriched_due_date, enriched_priority, enriched_tags, enriched_context) =
+        if let Some(raw_input) = args.get("raw_input").and_then(|v| v.as_str()) {
+            // Use LLM to parse the natural language input
+            let enriched = enricher.enrich_sync(raw_input);
+            (
+                enriched.title,
+                enriched.due_date,
+                enriched.priority,
+                enriched.tags,
+                enriched.context,
+            )
+        } else if let Some(title) = args.get("title").and_then(|v| v.as_str()) {
+            // Structured mode - use provided title directly
+            (title.to_string(), None, None, Vec::new(), None)
+        } else {
+            return Err("Missing raw_input or title".to_string());
+        };
 
     let mut task = TaskItem::new(title, ItemType::Task);
 
+    // Apply enriched fields first, then override with explicit args
+    if let Some(due_date) = enriched_due_date {
+        task.frontmatter.due_date = Some(due_date);
+    }
+    if let Some(priority) = enriched_priority {
+        task.frontmatter.priority = match priority.to_lowercase().as_str() {
+            "high" => Priority::High,
+            "low" => Priority::Low,
+            _ => Priority::Medium,
+        };
+    }
+    if !enriched_tags.is_empty() {
+        task.frontmatter.tags = enriched_tags;
+    }
+    if let Some(context) = enriched_context {
+        task.body = context;
+    }
+
+    // Override with explicit arguments if provided
     if let Some(context) = args.get("context").and_then(|v| v.as_str()) {
         task.body = context.to_string();
     }
@@ -326,6 +362,7 @@ fn read_task_details(storage: &Storage, args: Value) -> Result<Value, String> {
             ItemType::Task => "task",
             ItemType::Goal => "goal",
             ItemType::Note => "note",
+            ItemType::Project => "project",
         },
         "status": task.frontmatter.status.as_str(),
         "priority": match task.frontmatter.priority {

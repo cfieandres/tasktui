@@ -1,3 +1,5 @@
+mod config;
+mod llm;
 mod models;
 mod storage;
 mod tui;
