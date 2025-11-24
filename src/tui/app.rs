@@ -1,7 +1,12 @@
-use crate::models::{ItemType, Status, TaskFilter, TaskItem};
+use crate::models::{ItemType, Status, TaskItem};
 use crate::storage::Storage;
 use anyhow::Result;
-use ratatui::Frame;
+use ratatui::{
+    layout::Rect,
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
+};
 use std::path::PathBuf;
 
 use super::{kanban, compact, THEME};
@@ -19,6 +24,7 @@ pub struct App {
     pub selected_index: usize,
     pub active_filter: Option<String>,
     pub show_new_task: bool,
+    pub new_task_title: String,
 }
 
 impl App {
@@ -33,6 +39,7 @@ impl App {
             selected_index: 0,
             active_filter: None,
             show_new_task: false,
+            new_task_title: String::new(),
         })
     }
 
@@ -48,6 +55,49 @@ impl App {
             ViewMode::Kanban => kanban::render(frame, self),
             ViewMode::Compact => compact::render(frame, self),
         }
+
+        // Render new task dialog if open
+        if self.show_new_task {
+            self.render_new_task_dialog(frame);
+        }
+    }
+
+    fn render_new_task_dialog(&self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Center the dialog
+        let dialog_width = 50.min(area.width.saturating_sub(4));
+        let dialog_height = 5;
+        let dialog_area = Rect {
+            x: (area.width.saturating_sub(dialog_width)) / 2,
+            y: (area.height.saturating_sub(dialog_height)) / 2,
+            width: dialog_width,
+            height: dialog_height,
+        };
+
+        // Clear the area behind the dialog
+        frame.render_widget(Clear, dialog_area);
+
+        // Create dialog content
+        let input_text = format!("{}_", self.new_task_title);
+        let content = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(&input_text, THEME.normal_style()),
+            ]),
+        ];
+
+        let dialog = Paragraph::new(content)
+            .block(
+                Block::default()
+                    .title(" New Task ")
+                    .title_style(THEME.accent_style())
+                    .borders(Borders::ALL)
+                    .border_style(THEME.primary)
+            );
+
+        frame.render_widget(dialog, dialog_area);
     }
 
     pub fn next_task(&mut self) {
@@ -73,6 +123,26 @@ impl App {
 
     pub fn show_new_task_dialog(&mut self) {
         self.show_new_task = true;
+        self.new_task_title.clear();
+    }
+
+    pub fn cancel_new_task_dialog(&mut self) {
+        self.show_new_task = false;
+        self.new_task_title.clear();
+    }
+
+    pub fn create_new_task(&mut self) -> Result<()> {
+        if self.new_task_title.trim().is_empty() {
+            self.show_new_task = false;
+            return Ok(());
+        }
+
+        let mut task = TaskItem::new(self.new_task_title.trim().to_string(), ItemType::Task);
+        self.storage.write_task(&mut task)?;
+        self.tasks.push(task);
+        self.show_new_task = false;
+        self.new_task_title.clear();
+        Ok(())
     }
 
     pub fn mark_task_done(&mut self) -> Result<()> {

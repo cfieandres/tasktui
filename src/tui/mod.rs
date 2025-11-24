@@ -58,20 +58,31 @@ fn run_app<B: ratatui::backend::Backend>(
 
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Tab => app.toggle_view(),
-                    KeyCode::Char('n') => app.show_new_task_dialog(),
-                    KeyCode::Up | KeyCode::Char('k') => app.previous_task(),
-                    KeyCode::Down | KeyCode::Char('j') => app.next_task(),
-                    KeyCode::Enter => app.toggle_task_selection(),
-                    KeyCode::Char('d') => app.mark_task_done()?,
-                    KeyCode::Char('a') => app.archive_task()?,
-                    KeyCode::Char('r') => app.refresh_tasks()?,
-                    KeyCode::Char('1') => app.filter_by_tag("work"),
-                    KeyCode::Char('2') => app.filter_by_tag("personal"),
-                    KeyCode::Char('0') => app.clear_filters(),
-                    _ => {}
+                // Handle new task dialog input
+                if app.show_new_task {
+                    match key.code {
+                        KeyCode::Esc => app.cancel_new_task_dialog(),
+                        KeyCode::Enter => app.create_new_task()?,
+                        KeyCode::Backspace => { app.new_task_title.pop(); }
+                        KeyCode::Char(c) => app.new_task_title.push(c),
+                        _ => {}
+                    }
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Tab => app.toggle_view(),
+                        KeyCode::Char('n') => app.show_new_task_dialog(),
+                        KeyCode::Up | KeyCode::Char('k') => app.previous_task(),
+                        KeyCode::Down | KeyCode::Char('j') => app.next_task(),
+                        KeyCode::Enter => app.toggle_task_selection(),
+                        KeyCode::Char('d') => app.mark_task_done()?,
+                        KeyCode::Char('a') => app.archive_task()?,
+                        KeyCode::Char('r') => app.refresh_tasks()?,
+                        KeyCode::Char('1') => app.filter_by_tag("work"),
+                        KeyCode::Char('2') => app.filter_by_tag("personal"),
+                        KeyCode::Char('0') => app.clear_filters(),
+                        _ => {}
+                    }
                 }
             }
         }
